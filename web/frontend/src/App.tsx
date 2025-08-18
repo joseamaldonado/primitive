@@ -37,7 +37,7 @@ function App() {
   const [isDragOver, setIsDragOver] = useState(false)
   
   // Parameters
-  const [shapeCount, setShapeCount] = useState(50)
+  const [shapeCount, setShapeCount] = useState(100)
   const [shapeMode, setShapeMode] = useState(1) // Triangles
   const [alpha, setAlpha] = useState(128)
   
@@ -335,9 +335,9 @@ function App() {
                 <Slider
                   value={[shapeCount]}
                   onValueChange={(value) => setShapeCount(value[0])}
-                  min={10}
-                  max={200}
-                  step={1}
+                  min={50}
+                  max={300}
+                  step={5}
                   disabled={appState === 'processing'}
                   className="flex-1"
                 />
