@@ -142,18 +142,10 @@ function App() {
     }
   }
 
-  const handleUploadDifferent = () => {
-    setAppState('initial')
-    setSelectedFile(null)
-    setResultUrl(null)
-    setError(null)
-    setProgress(null)
-  }
-
   const handleProcess = async () => {
     if (!selectedFile) return
 
-    setAppState('processing')
+    // Don't change state yet - keep showing original image until we get initial background
     setError(null)
 
     const formData = new FormData()
@@ -199,6 +191,21 @@ function App() {
       })
 
       if (!response.ok) throw new Error('Processing failed')
+      
+      const data = await response.json()
+      
+      // Set initial progress with background image from response
+      setProgress({
+        jobId: data.jobId,
+        progress: 0,
+        total: shapeCount,
+        score: 0,
+        completed: false,
+        imageData: data.initialImage
+      })
+      
+      // Now switch to processing state since we have the initial image
+      setAppState('processing')
     } catch (err) {
       setError('Failed to start processing: ' + (err as Error).message)
       setAppState('uploaded')

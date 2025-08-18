@@ -32,7 +32,8 @@ type ProcessRequest struct {
 }
 
 type ProcessResponse struct {
-	JobID string `json:"jobId"`
+	JobID        string `json:"jobId"`
+	InitialImage string `json:"initialImage"` // Base64 encoded initial background
 }
 
 type ProgressUpdate struct {
@@ -56,6 +57,35 @@ type Job struct {
 	Error      string
 	ResultData []byte
 	InputData  []byte
+}
+
+func generateInitialImage(inputData []byte) (string, error) {
+	// Load input image from memory
+	reader := bytes.NewReader(inputData)
+	input, _, err := image.Decode(reader)
+	if err != nil {
+		return "", err
+	}
+
+	// Resize input
+	input = resize.Thumbnail(256, 256, input, resize.Bilinear)
+
+	// Setup background color
+	bg := primitive.MakeColor(primitive.AverageImageColor(input))
+
+	// Create model with just the background
+	model := primitive.NewModel(input, bg, 512, 1)
+
+	// Encode background to JPEG
+	var buf bytes.Buffer
+	opts := &jpeg.Options{Quality: 70}
+	err = jpeg.Encode(&buf, model.Context.Image(), opts)
+	if err != nil {
+		return "", err
+	}
+
+	// Return base64 encoded image
+	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }
 
 func main() {
@@ -141,6 +171,13 @@ func handleProcess(c *gin.Context) {
 		return
 	}
 
+	// Generate initial background image before starting processing
+	initialImageData, err := generateInitialImage(job.InputData)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to generate initial image"})
+		return
+	}
+
 	// Update job for processing
 	job.Status = "processing"
 	job.Total = req.Count
@@ -148,7 +185,10 @@ func handleProcess(c *gin.Context) {
 	// Start processing in goroutine
 	go processImage(req.JobID, req.Count, req.Mode, req.Alpha)
 
-	c.JSON(200, ProcessResponse{JobID: req.JobID})
+	c.JSON(200, ProcessResponse{
+		JobID:        req.JobID,
+		InitialImage: initialImageData,
+	})
 }
 
 func handleStatus(c *gin.Context) {
@@ -266,8 +306,8 @@ func processImage(jobID string, count, mode, alpha int) {
 		job.Progress = i + 1
 		job.Score = model.Score
 		
-		// Broadcast progress every 10 shapes (or last shape) with current image
-		if (i+1)%10 == 0 || i+1 == count {
+		// Broadcast progress every 5 shapes (or last shape) with current image
+		if (i+1)%5 == 0 || i+1 == count {
 			// Encode current state to JPEG for progress update
 			var buf bytes.Buffer
 			opts := &jpeg.Options{
