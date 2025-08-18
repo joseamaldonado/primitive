@@ -35,6 +35,7 @@ function App() {
   const [resultUrl, setResultUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   
   // Parameters
   const [shapeCount, setShapeCount] = useState(100)
@@ -322,8 +323,8 @@ function App() {
 
       </div>
 
-      {/* Bottom Sidebar */}
-      <div className="h-40 bg-card border-t border-border p-6">
+      {/* Desktop Bottom Sidebar */}
+      <div className="hidden md:block h-40 bg-card border-t border-border p-6">
         <div className="flex items-center gap-8 h-full max-w-6xl mx-auto">
             
             {/* Shape Count */}
@@ -433,6 +434,148 @@ function App() {
           )}
 
         </div>
+
+      {/* Mobile Bottom Menu */}
+      <div className="md:hidden relative">
+        {/* Mobile Menu Button */}
+        <div className="h-16 bg-card border-t border-border flex items-center justify-center">
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground"
+          >
+            <span>Settings</span>
+            <div className={`transition-transform duration-200 ${isMobileMenuOpen ? 'rotate-180' : ''}`}>
+              ▲
+            </div>
+          </button>
+        </div>
+
+        {/* Mobile Overlay Menu */}
+        {isMobileMenuOpen && (
+          <>
+            {/* Backdrop */}
+            <div 
+              className="fixed inset-0 bg-black/50 z-40 transition-opacity duration-300"
+              onClick={() => setIsMobileMenuOpen(false)}
+            />
+            
+            {/* Menu Panel */}
+            <div className="absolute bottom-16 left-0 right-0 bg-card border-t border-border shadow-lg z-50 max-h-[calc(100vh-16rem)] overflow-y-auto">
+              <div className="p-4 space-y-6">
+                
+                {/* Shape Count */}
+                <div>
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-3">
+                    Shape Count
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Slider
+                      value={[shapeCount]}
+                      onValueChange={(value) => setShapeCount(value[0])}
+                      min={50}
+                      max={300}
+                      step={5}
+                      disabled={appState === 'processing'}
+                      className="flex-1"
+                    />
+                    <div className="min-w-[40px] text-right text-sm font-medium">
+                      {shapeCount}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Shape Type */}
+                <div>
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-3">
+                    Shape Type
+                  </div>
+                  <Select 
+                    value={shapeMode.toString()} 
+                    onValueChange={(value) => setShapeMode(Number(value))}
+                    disabled={appState === 'processing'}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SHAPE_MODES.map(mode => (
+                        <SelectItem key={mode.value} value={mode.value.toString()}>
+                          {mode.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Alpha */}
+                <div>
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-3">
+                    Alpha
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Slider
+                      value={[alpha]}
+                      onValueChange={(value) => setAlpha(value[0])}
+                      min={32}
+                      max={255}
+                      step={1}
+                      disabled={appState === 'processing'}
+                      className="flex-1"
+                    />
+                    <div className="min-w-[40px] text-right text-sm font-medium">
+                      {alpha}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div>
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-3">
+                    Actions
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    <Button 
+                      variant="outline" 
+                      onClick={handleUploadAreaClick}
+                      size="sm"
+                      className="w-full"
+                    >
+                      Upload
+                    </Button>
+                    <Button 
+                      onClick={handleProcess}
+                      disabled={appState === 'processing' || !selectedFile}
+                      size="sm"
+                      className="w-full"
+                    >
+                      {appState === 'processing' ? 'Processing...' : appState === 'completed' ? 'Process Again' : 'Process Image'}
+                    </Button>
+                    {appState === 'completed' && resultUrl && (
+                      <Button
+                        onClick={handleDownload}
+                        variant="default"
+                        size="sm"
+                        className="w-full"
+                      >
+                        Download
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Mobile Error Display */}
+                {error && (
+                  <div className="bg-destructive text-destructive-foreground p-3 text-sm">
+                    {error}
+                  </div>
+                )}
+
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
     </div>
   )
 }
