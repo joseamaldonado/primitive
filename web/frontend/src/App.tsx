@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-
-
+import { Button } from '@/components/ui/button'
+import { Slider } from '@/components/ui/slider'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import './index.css'
 
 interface ProgressUpdate {
   jobId: string
@@ -24,13 +26,16 @@ const SHAPE_MODES = [
   { value: 8, label: 'Polygons' }
 ]
 
+type AppState = 'initial' | 'uploaded' | 'processing' | 'completed'
+
 function App() {
+  const [appState, setAppState] = useState<AppState>('initial')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [uploading, setUploading] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState<ProgressUpdate | null>(null)
   const [resultUrl, setResultUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  
   // Parameters
   const [shapeCount, setShapeCount] = useState(50)
   const [shapeMode, setShapeMode] = useState(1) // Triangles
@@ -65,8 +70,10 @@ function App() {
           setProcessing(false)
           if (!update.error) {
             setResultUrl(`http://localhost:8081/api/download/${update.jobId}`)
+            setAppState('completed')
           } else {
             setError(update.error)
+            setAppState('uploaded')
           }
         }
       }
@@ -92,20 +99,38 @@ function App() {
     }
   }, [])
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (file: File) => {
+    setSelectedFile(file)
+    setAppState('uploaded')
+    setResultUrl(null)
+    setError(null)
+    setProgress(null)
+  }
+
+  const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
-      setSelectedFile(file)
-      setResultUrl(null)
-      setError(null)
-      setProgress(null)
+      handleFileSelect(file)
     }
   }
 
-  const handleUpload = async () => {
+  const handleUploadAreaClick = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleUploadDifferent = () => {
+    setAppState('initial')
+    setSelectedFile(null)
+    setResultUrl(null)
+    setError(null)
+    setProgress(null)
+  }
+
+  const handleProcess = async () => {
     if (!selectedFile) return
 
-    setUploading(true)
+    setAppState('processing')
+    setProcessing(true)
     setError(null)
 
     const formData = new FormData()
@@ -123,8 +148,8 @@ function App() {
       await startProcessing(data.jobId)
     } catch (err) {
       setError('Upload failed: ' + (err as Error).message)
-    } finally {
-      setUploading(false)
+      setAppState('uploaded')
+      setProcessing(false)
     }
   }
 
@@ -159,170 +184,213 @@ function App() {
     }
   }
 
+  const handleDownload = async () => {
+    if (!resultUrl) return
+
+    try {
+      const response = await fetch(resultUrl)
+      const blob = await response.blob()
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `primitive-${Date.now()}.jpg`
+      
+      // Trigger download
+      document.body.appendChild(link)
+      link.click()
+      
+      // Cleanup
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      setError('Download failed: ' + (err as Error).message)
+    }
+  }
+
   return (
-    <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}>
-      <h1>Primitive Pictures Web</h1>
-      <p>Upload an image and convert it to geometric primitives</p>
+    <div className="h-screen flex flex-col bg-background">
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileInputChange}
+        style={{ display: 'none' }}
+      />
 
-      {/* File Upload */}
-      <div style={{ marginBottom: '20px' }}>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          onChange={handleFileSelect}
-          style={{ display: 'none' }}
-        />
-        <button 
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading || processing}
-        >
-          {selectedFile ? selectedFile.name : 'Select Image'}
-        </button>
-      </div>
-
-      {/* Parameters */}
-      {selectedFile && (
-        <div style={{ marginBottom: '20px', border: '1px solid #ccc', padding: '15px' }}>
-          <h3>Parameters</h3>
-          
-          <div style={{ marginBottom: '10px' }}>
-            <label>Shape Count: {shapeCount}</label>
-            <input
-              type="range"
-              min="10"
-              max="200"
-              value={shapeCount}
-              onChange={(e) => setShapeCount(Number(e.target.value))}
-              disabled={processing}
-              style={{ width: '100%' }}
-            />
-          </div>
-
-          <div style={{ marginBottom: '10px' }}>
-            <label>Shape Type: </label>
-            <select
-              value={shapeMode}
-              onChange={(e) => setShapeMode(Number(e.target.value))}
-              disabled={processing}
-            >
-              {SHAPE_MODES.map(mode => (
-                <option key={mode.value} value={mode.value}>
-                  {mode.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div style={{ marginBottom: '10px' }}>
-            <label>Alpha: {alpha}</label>
-            <input
-              type="range"
-              min="32"
-              max="255"
-              value={alpha}
-              onChange={(e) => setAlpha(Number(e.target.value))}
-              disabled={processing}
-              style={{ width: '100%' }}
-            />
-          </div>
-
-          <button
-            onClick={handleUpload}
-            disabled={uploading || processing || !selectedFile}
-            style={{ 
-              padding: '10px 20px', 
-              backgroundColor: processing ? '#ccc' : '#007bff',
-              color: 'white',
-              border: 'none',
-              cursor: processing ? 'not-allowed' : 'pointer'
-            }}
+      {/* Main Content Area */}
+      <div className="flex-1 relative">
+        
+        {/* Initial State: Click anywhere to upload */}
+        {appState === 'initial' && (
+          <div 
+            className="absolute inset-0 flex items-center justify-center cursor-pointer transition-colors hover:bg-white/[0.02]" 
+            onClick={handleUploadAreaClick}
           >
-            {uploading ? 'Uploading...' : processing ? 'Processing...' : 'Process Image'}
-          </button>
-        </div>
-      )}
+            <div className="text-lg text-muted-foreground select-none">
+              Click anywhere to upload an image
+            </div>
+          </div>
+        )}
 
-      {/* Original Image Preview */}
-      {selectedFile && (
-        <div style={{ marginBottom: '20px' }}>
-          <h3>Original Image</h3>
-          <img 
-            src={URL.createObjectURL(selectedFile)} 
-            alt="Original"
-            style={{ maxWidth: '400px', height: 'auto' }}
-          />
-        </div>
-      )}
-
-      {/* Progress */}
-      {progress && (
-        <div style={{ marginBottom: '20px' }}>
-          <h3>Progress: {progress.progress} / {progress.total} shapes</h3>
-          {progress.imageData && (
-            <div style={{ marginBottom: '15px' }}>
+        {/* Processing State: Show progress image */}
+        {appState === 'processing' && progress && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+            {progress.imageData && (
               <img 
                 src={`data:image/jpeg;base64,${progress.imageData}`}
-                alt="Work in progress"
-                style={{ 
-                  maxWidth: '400px', 
-                  height: 'auto', 
-                  border: '2px solid #007bff',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
-                }}
+                alt="Processing"
+                className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl transition-opacity duration-300"
+              />
+            )}
+            <div className="mt-5 w-[300px] h-1 bg-border overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-primary to-emerald-500 transition-all duration-300"
+                style={{ width: `${(progress.progress / progress.total) * 100}%` }}
               />
             </div>
-          )}
-          {/* Small progress bar for reference */}
-          <div style={{ width: '100%', backgroundColor: '#f0f0f0', height: '8px', borderRadius: '4px', marginBottom: '10px' }}>
-            <div 
-              style={{ 
-                width: `${(progress.progress / progress.total) * 100}%`,
-                backgroundColor: '#007bff',
-                height: '100%',
-                borderRadius: '4px',
-                transition: 'width 0.3s'
-              }}
+            <div className="mt-3 text-sm text-muted-foreground">
+              {progress.progress} / {progress.total} shapes • Score: {progress.score?.toFixed(6)}
+            </div>
+          </div>
+        )}
+
+        {/* Completed State: Show final image */}
+        {appState === 'completed' && resultUrl && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+            <img 
+              src={resultUrl}
+              alt="Final result"
+              className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl"
+            />
+            <div className="mt-5 w-[300px] h-1 bg-border overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-primary to-emerald-500" style={{ width: '100%' }} />
+            </div>
+            <div className="mt-3 text-sm text-muted-foreground">Complete!</div>
+          </div>
+        )}
+
+        {/* Uploaded State: Show original image */}
+        {appState === 'uploaded' && selectedFile && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <img 
+              src={URL.createObjectURL(selectedFile)} 
+              alt="Original"
+              className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl"
             />
           </div>
-          <p style={{ margin: 0 }}>
-            Score: {progress.score?.toFixed(6) || 'N/A'}
-          </p>
-        </div>
-      )}
+        )}
 
-      {/* Error */}
-      {error && (
-        <div style={{ backgroundColor: '#ffebee', color: '#c62828', padding: '10px', marginBottom: '20px' }}>
-          {error}
-        </div>
-      )}
+      </div>
 
-      {/* Result */}
-      {resultUrl && (
-        <div>
-          <h3>Result</h3>
-          <img 
-            src={resultUrl} 
-            alt="Processed"
-            style={{ maxWidth: '400px', height: 'auto' }}
-          />
-          <br />
-          <a 
-            href={resultUrl} 
-            download
-            style={{ 
-              display: 'inline-block',
-              marginTop: '10px',
-              padding: '10px 20px',
-              backgroundColor: '#28a745',
-              color: 'white',
-              textDecoration: 'none'
-            }}
-          >
-            Download Result
-          </a>
+      {/* Bottom Sidebar - Always visible when file is selected */}
+      {selectedFile && (
+        <div className="h-40 bg-card border-t border-border p-6">
+          <div className="flex items-center gap-8 h-full max-w-6xl mx-auto">
+            
+            {/* Shape Count */}
+            <div className="flex-1 min-w-0">
+              <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-2">
+                Shape Count
+              </div>
+              <div className="flex items-center gap-3">
+                <Slider
+                  value={[shapeCount]}
+                  onValueChange={(value) => setShapeCount(value[0])}
+                  min={10}
+                  max={200}
+                  step={1}
+                  disabled={processing}
+                  className="flex-1"
+                />
+                <div className="min-w-[40px] text-right text-sm font-medium">
+                  {shapeCount}
+                </div>
+              </div>
+            </div>
+
+            {/* Shape Type */}
+            <div className="w-48">
+              <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-2">
+                Shape Type
+              </div>
+              <Select 
+                value={shapeMode.toString()} 
+                onValueChange={(value) => setShapeMode(Number(value))}
+                disabled={processing}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SHAPE_MODES.map(mode => (
+                    <SelectItem key={mode.value} value={mode.value.toString()}>
+                      {mode.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Alpha */}
+            <div className="flex-1 min-w-0">
+              <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-2">
+                Alpha
+              </div>
+              <div className="flex items-center gap-3">
+                <Slider
+                  value={[alpha]}
+                  onValueChange={(value) => setAlpha(value[0])}
+                  min={32}
+                  max={255}
+                  step={1}
+                  disabled={processing}
+                  className="flex-1"
+                />
+                <div className="min-w-[40px] text-right text-sm font-medium">
+                  {alpha}
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3">
+              <Button 
+                variant="outline" 
+                onClick={handleUploadDifferent}
+                size="sm"
+              >
+                Upload Different
+              </Button>
+              <Button 
+                onClick={handleProcess}
+                disabled={processing || !selectedFile}
+                size="sm"
+              >
+                {processing ? 'Processing...' : appState === 'completed' ? 'Process Again' : 'Process Image'}
+              </Button>
+              {appState === 'completed' && resultUrl && (
+                <Button
+                  onClick={handleDownload}
+                  variant="default"
+                  size="sm"
+                >
+                  Download
+                </Button>
+              )}
+            </div>
+
+          </div>
+
+          {/* Error Display */}
+          {error && (
+            <div className="bg-destructive text-destructive-foreground p-3 text-sm mt-4 max-w-6xl mx-auto">
+              {error}
+            </div>
+          )}
+
         </div>
       )}
     </div>
