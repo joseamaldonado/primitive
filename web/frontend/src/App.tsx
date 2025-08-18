@@ -34,6 +34,7 @@ function App() {
   const [progress, setProgress] = useState<ProgressUpdate | null>(null)
   const [resultUrl, setResultUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
   
   // Parameters
   const [shapeCount, setShapeCount] = useState(50)
@@ -114,6 +115,31 @@ function App() {
 
   const handleUploadAreaClick = () => {
     fileInputRef.current?.click()
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+
+    const files = Array.from(e.dataTransfer.files)
+    const imageFile = files.find(file => file.type.startsWith('image/'))
+    
+    if (imageFile) {
+      handleFileSelect(imageFile)
+    }
   }
 
   const handleUploadDifferent = () => {
@@ -216,16 +242,32 @@ function App() {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 relative">
+      <div 
+        className="flex-1 relative"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         
         {/* Initial State: Click anywhere to upload */}
         {appState === 'initial' && (
           <div 
-            className="absolute inset-0 flex items-center justify-center cursor-pointer transition-colors hover:bg-white/[0.02]" 
+            className={`absolute inset-0 flex items-center justify-center cursor-pointer transition-all duration-200 ${
+              isDragOver 
+                ? 'bg-primary/10 border-2 border-dashed border-primary' 
+                : 'hover:bg-white/[0.02]'
+            }`}
             onClick={handleUploadAreaClick}
           >
-            <div className="text-lg text-muted-foreground select-none">
-              Click anywhere to upload an image
+            <div className="text-center">
+              <div className="text-lg text-muted-foreground select-none">
+                {isDragOver ? 'Drop your image here' : 'Click anywhere or drag & drop an image'}
+              </div>
+              {!isDragOver && (
+                <div className="text-sm text-muted-foreground/70 mt-2 select-none">
+                  Supports PNG, JPG, GIF, and other image formats
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -254,12 +296,20 @@ function App() {
 
         {/* Uploaded State: Show original image */}
         {appState === 'uploaded' && selectedFile && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <img 
-              src={URL.createObjectURL(selectedFile)} 
-              alt="Original"
-              className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl"
-            />
+          <div className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
+            isDragOver ? 'bg-primary/10 border-2 border-dashed border-primary' : ''
+          }`}>
+            {isDragOver ? (
+              <div className="text-lg text-muted-foreground select-none">
+                Drop to replace image
+              </div>
+            ) : (
+              <img 
+                src={URL.createObjectURL(selectedFile)} 
+                alt="Original"
+                className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl"
+              />
+            )}
           </div>
         )}
 
