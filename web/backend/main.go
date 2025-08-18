@@ -304,11 +304,15 @@ func processImage(jobID string, count, mode, alpha int) {
 
 	job.ResultData = buf.Bytes()
 	job.Status = "completed"
+	
+	// Include final image data in completion message for smooth transition
+	finalImageData := base64.StdEncoding.EncodeToString(buf.Bytes())
 	broadcastProgress(ProgressUpdate{
 		JobID:     jobID,
 		Progress:  count,
 		Total:     count,
 		Score:     job.Score,
+		ImageData: finalImageData,
 		Completed: true,
 	})
 }

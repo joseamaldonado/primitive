@@ -31,7 +31,6 @@ type AppState = 'initial' | 'uploaded' | 'processing' | 'completed'
 function App() {
   const [appState, setAppState] = useState<AppState>('initial')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState<ProgressUpdate | null>(null)
   const [resultUrl, setResultUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -67,7 +66,6 @@ function App() {
         setProgress(update)
         
         if (update.completed) {
-          setProcessing(false)
           if (!update.error) {
             setResultUrl(`http://localhost:8081/api/download/${update.jobId}`)
             setAppState('completed')
@@ -130,7 +128,6 @@ function App() {
     if (!selectedFile) return
 
     setAppState('processing')
-    setProcessing(true)
     setError(null)
 
     const formData = new FormData()
@@ -149,12 +146,10 @@ function App() {
     } catch (err) {
       setError('Upload failed: ' + (err as Error).message)
       setAppState('uploaded')
-      setProcessing(false)
     }
   }
 
   const startProcessing = async (jobId: string) => {
-    setProcessing(true)
     setProgress(null)
     setResultUrl(null)
 
@@ -180,7 +175,7 @@ function App() {
       if (!response.ok) throw new Error('Processing failed')
     } catch (err) {
       setError('Failed to start processing: ' + (err as Error).message)
-      setProcessing(false)
+      setAppState('uploaded')
     }
   }
 
@@ -235,13 +230,13 @@ function App() {
           </div>
         )}
 
-        {/* Processing State: Show progress image */}
-        {appState === 'processing' && progress && (
+        {/* Processing/Completed State: Show progress image */}
+        {(appState === 'processing' || appState === 'completed') && progress && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
             {progress.imageData && (
               <img 
                 src={`data:image/jpeg;base64,${progress.imageData}`}
-                alt="Processing"
+                alt={appState === 'completed' ? 'Final result' : 'Processing'}
                 className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl transition-opacity duration-300"
               />
             )}
@@ -252,23 +247,8 @@ function App() {
               />
             </div>
             <div className="mt-3 text-sm text-muted-foreground">
-              {progress.progress} / {progress.total} shapes • Score: {progress.score?.toFixed(6)}
+              {appState === 'completed' ? 'Complete!' : `${progress.progress} / ${progress.total} shapes • Score: ${progress.score?.toFixed(6)}`}
             </div>
-          </div>
-        )}
-
-        {/* Completed State: Show final image */}
-        {appState === 'completed' && resultUrl && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-            <img 
-              src={resultUrl}
-              alt="Final result"
-              className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl"
-            />
-            <div className="mt-5 w-[300px] h-1 bg-border overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-primary to-emerald-500" style={{ width: '100%' }} />
-            </div>
-            <div className="mt-3 text-sm text-muted-foreground">Complete!</div>
           </div>
         )}
 
@@ -302,7 +282,7 @@ function App() {
                   min={10}
                   max={200}
                   step={1}
-                  disabled={processing}
+                  disabled={appState === 'processing'}
                   className="flex-1"
                 />
                 <div className="min-w-[40px] text-right text-sm font-medium">
@@ -319,7 +299,7 @@ function App() {
               <Select 
                 value={shapeMode.toString()} 
                 onValueChange={(value) => setShapeMode(Number(value))}
-                disabled={processing}
+                disabled={appState === 'processing'}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -346,7 +326,7 @@ function App() {
                   min={32}
                   max={255}
                   step={1}
-                  disabled={processing}
+                  disabled={appState === 'processing'}
                   className="flex-1"
                 />
                 <div className="min-w-[40px] text-right text-sm font-medium">
@@ -366,10 +346,10 @@ function App() {
               </Button>
               <Button 
                 onClick={handleProcess}
-                disabled={processing || !selectedFile}
+                disabled={appState === 'processing' || !selectedFile}
                 size="sm"
               >
-                {processing ? 'Processing...' : appState === 'completed' ? 'Process Again' : 'Process Image'}
+                {appState === 'processing' ? 'Processing...' : appState === 'completed' ? 'Process Again' : 'Process Image'}
               </Button>
               {appState === 'completed' && resultUrl && (
                 <Button
