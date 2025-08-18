@@ -384,8 +384,12 @@ function App() {
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex gap-3">
+                        {/* Action Buttons */}
+            <div className="flex-shrink-0">
+              <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-2">
+                Actions
+              </div>
+              <div className="flex gap-3">
                 <Button 
                   variant="outline" 
                   onClick={selectedFile ? handleUploadDifferent : handleUploadAreaClick}
@@ -393,22 +397,23 @@ function App() {
                 >
                   Upload
                 </Button>
-              <Button 
-                onClick={handleProcess}
-                disabled={appState === 'processing' || !selectedFile}
-                size="sm"
-              >
-                {appState === 'processing' ? 'Processing...' : appState === 'completed' ? 'Process Again' : 'Process Image'}
-              </Button>
-              {appState === 'completed' && resultUrl && (
-                <Button
-                  onClick={handleDownload}
-                  variant="default"
+                <Button 
+                  onClick={handleProcess}
+                  disabled={appState === 'processing' || !selectedFile}
                   size="sm"
                 >
-                  Download
+                  {appState === 'processing' ? 'Processing...' : appState === 'completed' ? 'Process Again' : 'Process Image'}
                 </Button>
-              )}
+                {appState === 'completed' && resultUrl && (
+                  <Button
+                    onClick={handleDownload}
+                    variant="default"
+                    size="sm"
+                  >
+                    Download
+                  </Button>
+                )}
+              </div>
             </div>
 
           </div>
