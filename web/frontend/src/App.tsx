@@ -291,7 +291,7 @@ function App() {
             )}
             <div className="mt-5 w-[300px] h-1 bg-border overflow-hidden">
               <div 
-                className="h-full bg-gradient-to-r from-primary to-emerald-500 transition-all duration-300"
+                className="h-full bg-white transition-all duration-300"
                 style={{ width: `${(progress.progress / progress.total) * 100}%` }}
               />
             </div>
