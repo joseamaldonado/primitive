@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	"image/jpeg"
+	_ "image/png"
 	"io"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,10 +25,9 @@ var upgrader = websocket.Upgrader{
 }
 
 type ProcessRequest struct {
-	Filename string `json:"filename"`
-	Count    int    `json:"count"`
-	Mode     int    `json:"mode"`
-	Alpha    int    `json:"alpha"`
+	Count int `json:"count"`
+	Mode  int `json:"mode"`
+	Alpha int `json:"alpha"`
 }
 
 type ProcessResponse struct {
@@ -45,13 +46,14 @@ type ProgressUpdate struct {
 var jobs = make(map[string]*Job)
 
 type Job struct {
-	ID       string
-	Status   string
-	Progress int
-	Total    int
-	Score    float64
-	Error    string
-	Result   string
+	ID         string
+	Status     string
+	Progress   int
+	Total      int
+	Score      float64
+	Error      string
+	ResultData []byte
+	InputData  []byte
 }
 
 func main() {
@@ -70,10 +72,6 @@ func main() {
 		
 		c.Next()
 	})
-
-	// Create uploads directory
-	os.MkdirAll("uploads", 0755)
-	os.MkdirAll("results", 0755)
 
 	// Serve static files from frontend dist
 	r.Static("/assets", "../frontend/dist/assets")
@@ -96,56 +94,59 @@ func main() {
 }
 
 func handleUpload(c *gin.Context) {
-	file, header, err := c.Request.FormFile("file")
+	file, _, err := c.Request.FormFile("file")
 	if err != nil {
 		c.JSON(400, gin.H{"error": "No file uploaded"})
 		return
 	}
 	defer file.Close()
 
-	// Generate unique filename
-	filename := fmt.Sprintf("%d_%s", time.Now().Unix(), header.Filename)
-	filepath := filepath.Join("uploads", filename)
-
-	// Save file
-	out, err := os.Create(filepath)
+	// Read file into memory
+	fileData, err := io.ReadAll(file)
 	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to save file"})
-		return
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, file)
-	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to save file"})
+		c.JSON(500, gin.H{"error": "Failed to read file"})
 		return
 	}
 
-	c.JSON(200, gin.H{"filename": filename})
+	// Generate job ID and store file data
+	jobID := fmt.Sprintf("job_%d", time.Now().Unix())
+	job := &Job{
+		ID:        jobID,
+		Status:    "uploaded",
+		InputData: fileData,
+	}
+	jobs[jobID] = job
+
+	c.JSON(200, gin.H{"jobId": jobID})
 }
 
 func handleProcess(c *gin.Context) {
-	var req ProcessRequest
+	var req struct {
+		JobID string `json:"jobId"`
+		Count int    `json:"count"`
+		Mode  int    `json:"mode"`
+		Alpha int    `json:"alpha"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "Invalid request"})
 		return
 	}
 
-	// Generate job ID
-	jobID := fmt.Sprintf("job_%d", time.Now().Unix())
-	
-	// Create job
-	job := &Job{
-		ID:     jobID,
-		Status: "processing",
-		Total:  req.Count,
+	// Get existing job with uploaded data
+	job, exists := jobs[req.JobID]
+	if !exists {
+		c.JSON(404, gin.H{"error": "Job not found"})
+		return
 	}
-	jobs[jobID] = job
+
+	// Update job for processing
+	job.Status = "processing"
+	job.Total = req.Count
 
 	// Start processing in goroutine
-	go processImage(jobID, req)
+	go processImage(req.JobID, req.Count, req.Mode, req.Alpha)
 
-	c.JSON(200, ProcessResponse{JobID: jobID})
+	c.JSON(200, ProcessResponse{JobID: req.JobID})
 }
 
 func handleStatus(c *gin.Context) {
@@ -179,7 +180,13 @@ func handleDownload(c *gin.Context) {
 		return
 	}
 
-	c.File(job.Result)
+	if len(job.ResultData) == 0 {
+		c.JSON(400, gin.H{"error": "No result data available"})
+		return
+	}
+
+	// Serve JPEG image from memory
+	c.Data(200, "image/jpeg", job.ResultData)
 }
 
 var wsClients = make(map[*websocket.Conn]bool)
@@ -214,7 +221,7 @@ func broadcastProgress(update ProgressUpdate) {
 	}
 }
 
-func processImage(jobID string, req ProcessRequest) {
+func processImage(jobID string, count, mode, alpha int) {
 	job := jobs[jobID]
 	
 	defer func() {
@@ -229,9 +236,9 @@ func processImage(jobID string, req ProcessRequest) {
 		}
 	}()
 
-	// Load input image
-	inputPath := filepath.Join("uploads", req.Filename)
-	input, err := primitive.LoadImage(inputPath)
+	// Load input image from memory
+	reader := bytes.NewReader(job.InputData)
+	input, _, err := image.Decode(reader)
 	if err != nil {
 		job.Status = "error"
 		job.Error = "Failed to load image"
@@ -248,46 +255,45 @@ func processImage(jobID string, req ProcessRequest) {
 	model := primitive.NewModel(input, bg, 512, 1)
 	job.Score = model.Score
 
-	// Output path
-	outputPath := filepath.Join("results", fmt.Sprintf("%s.png", jobID))
-	job.Result = outputPath
-
 	// Process shapes
-	for i := 0; i < req.Count; i++ {
+	for i := 0; i < count; i++ {
 		// Add shape
-		model.Step(primitive.ShapeType(req.Mode), req.Alpha, 0)
+		model.Step(primitive.ShapeType(mode), alpha, 0)
 		
 		// Update progress
 		job.Progress = i + 1
 		job.Score = model.Score
 		
-		// Broadcast progress
-		broadcastProgress(ProgressUpdate{
-			JobID:    jobID,
-			Progress: i + 1,
-			Total:    req.Count,
-			Score:    model.Score,
-		})
-
-		// Save intermediate result every 10 shapes
-		if (i+1)%10 == 0 || i == req.Count-1 {
-			primitive.SavePNG(outputPath, model.Context.Image())
+		// Broadcast progress every 10 shapes (or last shape)
+		if (i+1)%10 == 0 || i+1 == count {
+			broadcastProgress(ProgressUpdate{
+				JobID:    jobID,
+				Progress: i + 1,
+				Total:    count,
+				Score:    model.Score,
+			})
 		}
+		
 	}
 
-	// Final save
-	err = primitive.SavePNG(outputPath, model.Context.Image())
+	// Encode result to memory as JPEG (much faster than PNG)
+	var buf bytes.Buffer
+	opts := &jpeg.Options{
+		Quality: 90, // High quality but fast encoding
+	}
+	err = jpeg.Encode(&buf, model.Context.Image(), opts)
 	if err != nil {
 		job.Status = "error"
-		job.Error = "Failed to save result"
+		job.Error = "Failed to encode result"
 		return
 	}
 
+	job.ResultData = buf.Bytes()
 	job.Status = "completed"
 	broadcastProgress(ProgressUpdate{
 		JobID:     jobID,
-		Progress:  req.Count,
-		Total:     req.Count,
+		Progress:  count,
+		Total:     count,
 		Score:     job.Score,
 		Completed: true,
 	})

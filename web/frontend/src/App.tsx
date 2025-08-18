@@ -1,11 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 
-interface ProcessRequest {
-  filename: string
-  count: number
-  mode: number
-  alpha: number
-}
+
 
 interface ProgressUpdate {
   jobId: string
@@ -35,7 +30,6 @@ function App() {
   const [progress, setProgress] = useState<ProgressUpdate | null>(null)
   const [resultUrl, setResultUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  
   // Parameters
   const [shapeCount, setShapeCount] = useState(50)
   const [shapeMode, setShapeMode] = useState(1) // Triangles
@@ -44,27 +38,56 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
 
-  useEffect(() => {
-    // Setup WebSocket connection
-    const ws = new WebSocket('ws://localhost:8081/ws')
-    wsRef.current = ws
-    
-    ws.onmessage = (event) => {
-      const update: ProgressUpdate = JSON.parse(event.data)
-      setProgress(update)
+  const connectWebSocket = (): Promise<WebSocket> => {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket('ws://localhost:8081/ws')
       
-      if (update.completed) {
-        setProcessing(false)
-        if (!update.error) {
-          setResultUrl(`http://localhost:8081/api/download/${update.jobId}`)
-        } else {
-          setError(update.error)
+      const timeout = setTimeout(() => {
+        reject(new Error('Connection timeout'))
+      }, 5000)
+      
+      ws.onopen = () => {
+        clearTimeout(timeout)
+        resolve(ws)
+      }
+      
+      ws.onerror = () => {
+        clearTimeout(timeout)
+        reject(new Error('WebSocket connection failed'))
+      }
+      
+      ws.onmessage = (event) => {
+        const update: ProgressUpdate = JSON.parse(event.data)
+        setProgress(update)
+        
+        if (update.completed) {
+          setProcessing(false)
+          if (!update.error) {
+            setResultUrl(`http://localhost:8081/api/download/${update.jobId}`)
+          } else {
+            setError(update.error)
+          }
         }
       }
-    }
+      
+      ws.onclose = () => {
+        // Connection closed - will reconnect when needed
+      }
+    })
+  }
+
+  useEffect(() => {
+    // Initialize WebSocket connection on component mount
+    connectWebSocket().then(ws => {
+      wsRef.current = ws
+    }).catch(() => {
+      // Initial connection failed - will retry when processing starts
+    })
 
     return () => {
-      ws.close()
+      if (wsRef.current) {
+        wsRef.current.close()
+      }
     }
   }, [])
 
@@ -96,7 +119,7 @@ function App() {
       if (!response.ok) throw new Error('Upload failed')
       
       const data = await response.json()
-      await startProcessing(data.filename)
+      await startProcessing(data.jobId)
     } catch (err) {
       setError('Upload failed: ' + (err as Error).message)
     } finally {
@@ -104,19 +127,24 @@ function App() {
     }
   }
 
-  const startProcessing = async (filename: string) => {
+  const startProcessing = async (jobId: string) => {
     setProcessing(true)
     setProgress(null)
     setResultUrl(null)
 
-    const request: ProcessRequest = {
-      filename,
-      count: shapeCount,
-      mode: shapeMode,
-      alpha
-    }
-
     try {
+      // Ensure WebSocket is connected before processing
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        wsRef.current = await connectWebSocket()
+      }
+
+      const request = {
+        jobId,
+        count: shapeCount,
+        mode: shapeMode,
+        alpha
+      }
+
       const response = await fetch('http://localhost:8081/api/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -125,7 +153,7 @@ function App() {
 
       if (!response.ok) throw new Error('Processing failed')
     } catch (err) {
-      setError('Processing failed: ' + (err as Error).message)
+      setError('Failed to start processing: ' + (err as Error).message)
       setProcessing(false)
     }
   }
