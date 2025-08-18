@@ -392,7 +392,7 @@ function App() {
               <div className="flex gap-3">
                 <Button 
                   variant="outline" 
-                  onClick={selectedFile ? handleUploadDifferent : handleUploadAreaClick}
+                  onClick={handleUploadAreaClick}
                   size="sm"
                 >
                   Upload
