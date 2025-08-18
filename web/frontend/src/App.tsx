@@ -315,10 +315,9 @@ function App() {
 
       </div>
 
-      {/* Bottom Sidebar - Always visible when file is selected */}
-      {selectedFile && (
-        <div className="h-40 bg-card border-t border-border p-6">
-          <div className="flex items-center gap-8 h-full max-w-6xl mx-auto">
+      {/* Bottom Sidebar */}
+      <div className="h-40 bg-card border-t border-border p-6">
+        <div className="flex items-center gap-8 h-full max-w-6xl mx-auto">
             
             {/* Shape Count */}
             <div className="flex-1 min-w-0">
@@ -387,13 +386,13 @@ function App() {
 
             {/* Action Buttons */}
             <div className="flex gap-3">
-              <Button 
-                variant="outline" 
-                onClick={handleUploadDifferent}
-                size="sm"
-              >
-                Upload Different
-              </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={selectedFile ? handleUploadDifferent : handleUploadAreaClick}
+                  size="sm"
+                >
+                  Upload
+                </Button>
               <Button 
                 onClick={handleProcess}
                 disabled={appState === 'processing' || !selectedFile}
@@ -422,7 +421,6 @@ function App() {
           )}
 
         </div>
-      )}
     </div>
   )
 }
