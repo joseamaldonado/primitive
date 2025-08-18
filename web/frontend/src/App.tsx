@@ -9,6 +9,7 @@ interface ProgressUpdate {
   score: number
   completed: boolean
   error?: string
+  imageData?: string // Base64 encoded JPEG
 }
 
 const SHAPE_MODES = [
@@ -257,20 +258,36 @@ function App() {
       {/* Progress */}
       {progress && (
         <div style={{ marginBottom: '20px' }}>
-          <h3>Progress</h3>
-          <div style={{ width: '100%', backgroundColor: '#f0f0f0', height: '20px' }}>
+          <h3>Progress: {progress.progress} / {progress.total} shapes</h3>
+          {progress.imageData && (
+            <div style={{ marginBottom: '15px' }}>
+              <img 
+                src={`data:image/jpeg;base64,${progress.imageData}`}
+                alt="Work in progress"
+                style={{ 
+                  maxWidth: '400px', 
+                  height: 'auto', 
+                  border: '2px solid #007bff',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
+                }}
+              />
+            </div>
+          )}
+          {/* Small progress bar for reference */}
+          <div style={{ width: '100%', backgroundColor: '#f0f0f0', height: '8px', borderRadius: '4px', marginBottom: '10px' }}>
             <div 
               style={{ 
                 width: `${(progress.progress / progress.total) * 100}%`,
                 backgroundColor: '#007bff',
                 height: '100%',
+                borderRadius: '4px',
                 transition: 'width 0.3s'
               }}
             />
           </div>
-          <p>
-            {progress.progress} / {progress.total} shapes 
-            {progress.score && ` | Score: ${progress.score.toFixed(6)}`}
+          <p style={{ margin: 0 }}>
+            Score: {progress.score?.toFixed(6) || 'N/A'}
           </p>
         </div>
       )}

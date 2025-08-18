@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -41,6 +42,7 @@ type ProgressUpdate struct {
 	Score     float64 `json:"score"`
 	Completed bool    `json:"completed"`
 	Error     string  `json:"error,omitempty"`
+	ImageData string  `json:"imageData,omitempty"` // Base64 encoded JPEG
 }
 
 var jobs = make(map[string]*Job)
@@ -264,13 +266,25 @@ func processImage(jobID string, count, mode, alpha int) {
 		job.Progress = i + 1
 		job.Score = model.Score
 		
-		// Broadcast progress every 10 shapes (or last shape)
+		// Broadcast progress every 10 shapes (or last shape) with current image
 		if (i+1)%10 == 0 || i+1 == count {
+			// Encode current state to JPEG for progress update
+			var buf bytes.Buffer
+			opts := &jpeg.Options{
+				Quality: 70, // Lower quality for faster encoding and smaller size
+			}
+			err := jpeg.Encode(&buf, model.Context.Image(), opts)
+			var imageData string
+			if err == nil {
+				imageData = base64.StdEncoding.EncodeToString(buf.Bytes())
+			}
+			
 			broadcastProgress(ProgressUpdate{
-				JobID:    jobID,
-				Progress: i + 1,
-				Total:    count,
-				Score:    model.Score,
+				JobID:     jobID,
+				Progress:  i + 1,
+				Total:     count,
+				Score:     model.Score,
+				ImageData: imageData,
 			})
 		}
 		
