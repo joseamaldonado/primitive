@@ -11,6 +11,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	
@@ -25,36 +26,56 @@ type ProcessRequest struct {
 }
 
 func processImageSync(inputData []byte, count, mode, alpha int) ([]byte, error) {
+	start := time.Now()
+	
 	// Load input image from memory
+	t1 := time.Now()
 	reader := bytes.NewReader(inputData)
 	input, _, err := image.Decode(reader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode image: %v", err)
 	}
+	log.Printf("⏱️  Image decode: %v", time.Since(t1))
 
 	// Resize input for faster processing
+	t2 := time.Now()
 	input = resize.Thumbnail(256, 256, input, resize.Bilinear)
+	log.Printf("⏱️  Image resize: %v", time.Since(t2))
 
 	// Setup background color
+	t3 := time.Now()
 	bg := primitive.MakeColor(primitive.AverageImageColor(input))
+	log.Printf("⏱️  Background color: %v", time.Since(t3))
 
 	// Create model with all CPU cores for maximum speed
+	t4 := time.Now()
 	workers := runtime.NumCPU()
+	log.Printf("🔧 Using %d CPU cores", workers)
 	model := primitive.NewModel(input, bg, 1024, workers) // Higher resolution output
+	log.Printf("⏱️  Model creation: %v", time.Since(t4))
 
 	// Process shapes as fast as possible
+	t5 := time.Now()
 	for i := 0; i < count; i++ {
+		stepStart := time.Now()
 		model.Step(primitive.ShapeType(mode), alpha, 0)
+		if (i+1)%10 == 0 || i == 0 { // Log every 10 steps
+			log.Printf("⏱️  Step %d/%d: %v (total: %v)", i+1, count, time.Since(stepStart), time.Since(t5))
+		}
 	}
+	log.Printf("⏱️  Algorithm processing (%d shapes): %v", count, time.Since(t5))
 
 	// Encode result to high-quality JPEG
+	t6 := time.Now()
 	var buf bytes.Buffer
 	opts := &jpeg.Options{Quality: 95}
 	err = jpeg.Encode(&buf, model.Context.Image(), opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode result: %v", err)
 	}
-
+	log.Printf("⏱️  JPEG encoding: %v", time.Since(t6))
+	
+	log.Printf("🎯 TOTAL PROCESSING TIME: %v", time.Since(start))
 	return buf.Bytes(), nil
 }
 
