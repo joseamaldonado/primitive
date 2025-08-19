@@ -2,30 +2,21 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
 	"fmt"
 	"image"
 	"image/jpeg"
 	_ "image/png"
 	"io"
 	"log"
-	"net/http"
 	"os"
 	"runtime"
-	"time"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	
 	"github.com/fogleman/primitive/primitive"
 	"github.com/nfnt/resize"
 )
-
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for now
-	},
-}
 
 type ProcessRequest struct {
 	Count int `json:"count"`
@@ -33,61 +24,38 @@ type ProcessRequest struct {
 	Alpha int `json:"alpha"`
 }
 
-type ProcessResponse struct {
-	JobID        string `json:"jobId"`
-	InitialImage string `json:"initialImage"` // Base64 encoded initial background
-}
-
-type ProgressUpdate struct {
-	JobID     string  `json:"jobId"`
-	Progress  int     `json:"progress"`
-	Total     int     `json:"total"`
-	Score     float64 `json:"score"`
-	Completed bool    `json:"completed"`
-	Error     string  `json:"error,omitempty"`
-	ImageData string  `json:"imageData,omitempty"` // Base64 encoded JPEG
-}
-
-var jobs = make(map[string]*Job)
-
-type Job struct {
-	ID         string
-	Status     string
-	Progress   int
-	Total      int
-	Score      float64
-	Error      string
-	ResultData []byte
-	InputData  []byte
-}
-
-func generateInitialImage(inputData []byte) (string, error) {
+func processImageSync(inputData []byte, count, mode, alpha int) ([]byte, error) {
 	// Load input image from memory
 	reader := bytes.NewReader(inputData)
 	input, _, err := image.Decode(reader)
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("failed to decode image: %v", err)
 	}
 
-	// Resize input
+	// Resize input for faster processing
 	input = resize.Thumbnail(256, 256, input, resize.Bilinear)
 
 	// Setup background color
 	bg := primitive.MakeColor(primitive.AverageImageColor(input))
 
-	// Create model with just the background
-	model := primitive.NewModel(input, bg, 512, 1)
+	// Create model with all CPU cores for maximum speed
+	workers := runtime.NumCPU()
+	model := primitive.NewModel(input, bg, 1024, workers) // Higher resolution output
 
-	// Encode background to JPEG
-	var buf bytes.Buffer
-	opts := &jpeg.Options{Quality: 70}
-	err = jpeg.Encode(&buf, model.Context.Image(), opts)
-	if err != nil {
-		return "", err
+	// Process shapes as fast as possible
+	for i := 0; i < count; i++ {
+		model.Step(primitive.ShapeType(mode), alpha, 0)
 	}
 
-	// Return base64 encoded image
-	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+	// Encode result to high-quality JPEG
+	var buf bytes.Buffer
+	opts := &jpeg.Options{Quality: 95}
+	err = jpeg.Encode(&buf, model.Context.Image(), opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode result: %v", err)
+	}
+
+	return buf.Bytes(), nil
 }
 
 func main() {
@@ -98,7 +66,7 @@ func main() {
 
 	r := gin.Default()
 
-	// CORS middleware - not needed for full-stack but keep for development
+	// CORS middleware for development
 	r.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -120,21 +88,10 @@ func main() {
 	// Serve static files from frontend build
 	r.Static("/assets", "./static/assets")
 	r.StaticFile("/", "./static/index.html")
-	
-	// Serve other static files
 	r.Static("/static", "./static")
 
-	// API routes
-	api := r.Group("/api")
-	{
-		api.POST("/upload", handleUpload)
-		api.POST("/process", handleProcess)
-		api.GET("/status/:jobId", handleStatus)
-		api.GET("/download/:jobId", handleDownload)
-	}
-
-	// WebSocket for progress updates
-	r.GET("/ws", handleWebSocket)
+	// Single API endpoint - upload and process in one shot
+	r.POST("/api/process", handleProcessImage)
 
 	// Get port from environment or default to 8081
 	port := os.Getenv("PORT")
@@ -146,13 +103,27 @@ func main() {
 	r.Run(":" + port)
 }
 
-func handleUpload(c *gin.Context) {
-	file, _, err := c.Request.FormFile("file")
+func handleProcessImage(c *gin.Context) {
+	log.Printf("Received process request from %s", c.ClientIP())
+	
+	// Parse multipart form
+	err := c.Request.ParseMultipartForm(32 << 20) // 32MB max
 	if err != nil {
+		log.Printf("Failed to parse multipart form: %v", err)
+		c.JSON(400, gin.H{"error": "Failed to parse form"})
+		return
+	}
+
+	// Get file
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		log.Printf("Failed to get file from form: %v", err)
 		c.JSON(400, gin.H{"error": "No file uploaded"})
 		return
 	}
 	defer file.Close()
+	
+	log.Printf("Received file: %s (%d bytes)", header.Filename, header.Size)
 
 	// Read file into memory
 	fileData, err := io.ReadAll(file)
@@ -161,220 +132,40 @@ func handleUpload(c *gin.Context) {
 		return
 	}
 
-	// Generate job ID and store file data
-	jobID := fmt.Sprintf("job_%d", time.Now().Unix())
-	job := &Job{
-		ID:        jobID,
-		Status:    "uploaded",
-		InputData: fileData,
-	}
-	jobs[jobID] = job
-
-	c.JSON(200, gin.H{"jobId": jobID})
-}
-
-func handleProcess(c *gin.Context) {
-	var req struct {
-		JobID string `json:"jobId"`
-		Count int    `json:"count"`
-		Mode  int    `json:"mode"`
-		Alpha int    `json:"alpha"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "Invalid request"})
-		return
+	// Parse parameters from form data
+	req := ProcessRequest{
+		Count: 100, // default
+		Mode:  1,   // triangles default
+		Alpha: 128, // default
 	}
 
-	// Get existing job with uploaded data
-	job, exists := jobs[req.JobID]
-	if !exists {
-		c.JSON(404, gin.H{"error": "Job not found"})
-		return
-	}
-
-	// Generate initial background image before starting processing
-	initialImageData, err := generateInitialImage(job.InputData)
-	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to generate initial image"})
-		return
-	}
-
-	// Update job for processing
-	job.Status = "processing"
-	job.Total = req.Count
-
-	// Start processing in goroutine
-	go processImage(req.JobID, req.Count, req.Mode, req.Alpha)
-
-	c.JSON(200, ProcessResponse{
-		JobID:        req.JobID,
-		InitialImage: initialImageData,
-	})
-}
-
-func handleStatus(c *gin.Context) {
-	jobID := c.Param("jobId")
-	job, exists := jobs[jobID]
-	if !exists {
-		c.JSON(404, gin.H{"error": "Job not found"})
-		return
-	}
-
-	c.JSON(200, gin.H{
-		"status":    job.Status,
-		"progress":  job.Progress,
-		"total":     job.Total,
-		"score":     job.Score,
-		"error":     job.Error,
-		"completed": job.Status == "completed",
-	})
-}
-
-func handleDownload(c *gin.Context) {
-	jobID := c.Param("jobId")
-	job, exists := jobs[jobID]
-	if !exists {
-		c.JSON(404, gin.H{"error": "Job not found"})
-		return
-	}
-
-	if job.Status != "completed" {
-		c.JSON(400, gin.H{"error": "Job not completed"})
-		return
-	}
-
-	if len(job.ResultData) == 0 {
-		c.JSON(400, gin.H{"error": "No result data available"})
-		return
-	}
-
-	// Serve JPEG image from memory
-	c.Data(200, "image/jpeg", job.ResultData)
-}
-
-var wsClients = make(map[*websocket.Conn]bool)
-
-func handleWebSocket(c *gin.Context) {
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		log.Println("WebSocket upgrade error:", err)
-		return
-	}
-	defer conn.Close()
-
-	wsClients[conn] = true
-	defer delete(wsClients, conn)
-
-	// Keep connection alive
-	for {
-		_, _, err := conn.ReadMessage()
-		if err != nil {
-			break
+	if countStr := c.PostForm("count"); countStr != "" {
+		if count, err := strconv.Atoi(countStr); err == nil {
+			req.Count = count
 		}
 	}
-}
-
-func broadcastProgress(update ProgressUpdate) {
-	for conn := range wsClients {
-		err := conn.WriteJSON(update)
-		if err != nil {
-			conn.Close()
-			delete(wsClients, conn)
+	if modeStr := c.PostForm("mode"); modeStr != "" {
+		if mode, err := strconv.Atoi(modeStr); err == nil {
+			req.Mode = mode
 		}
 	}
-}
-
-func processImage(jobID string, count, mode, alpha int) {
-	job := jobs[jobID]
-	
-	defer func() {
-		if r := recover(); r != nil {
-			job.Status = "error"
-			job.Error = fmt.Sprintf("Processing failed: %v", r)
-			broadcastProgress(ProgressUpdate{
-				JobID:     jobID,
-				Completed: true,
-				Error:     job.Error,
-			})
+	if alphaStr := c.PostForm("alpha"); alphaStr != "" {
+		if alpha, err := strconv.Atoi(alphaStr); err == nil {
+			req.Alpha = alpha
 		}
-	}()
+	}
 
-	// Load input image from memory
-	reader := bytes.NewReader(job.InputData)
-	input, _, err := image.Decode(reader)
+	log.Printf("Processing image: count=%d, mode=%d, alpha=%d", req.Count, req.Mode, req.Alpha)
+
+	// Process image synchronously - no jobs, no WebSockets, just pure speed
+	resultData, err := processImageSync(fileData, req.Count, req.Mode, req.Alpha)
 	if err != nil {
-		job.Status = "error"
-		job.Error = "Failed to load image"
+		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Resize input
-	input = resize.Thumbnail(256, 256, input, resize.Bilinear)
+	log.Printf("Processing complete, returning image (%d bytes)", len(resultData))
 
-	// Setup background color
-	bg := primitive.MakeColor(primitive.AverageImageColor(input))
-
-	// Create model with multiple workers for faster processing
-	workers := runtime.NumCPU()
-	model := primitive.NewModel(input, bg, 512, workers)
-	job.Score = model.Score
-
-	// Process shapes
-	for i := 0; i < count; i++ {
-		// Add shape
-		model.Step(primitive.ShapeType(mode), alpha, 0)
-		
-		// Update progress
-		job.Progress = i + 1
-		job.Score = model.Score
-		
-		// Broadcast progress every 5 shapes (or last shape) with current image
-		if (i+1)%5 == 0 || i+1 == count {
-			// Encode current state to JPEG for progress update
-			var buf bytes.Buffer
-			opts := &jpeg.Options{
-				Quality: 70, // Lower quality for faster encoding and smaller size
-			}
-			err := jpeg.Encode(&buf, model.Context.Image(), opts)
-			var imageData string
-			if err == nil {
-				imageData = base64.StdEncoding.EncodeToString(buf.Bytes())
-			}
-			
-			broadcastProgress(ProgressUpdate{
-				JobID:     jobID,
-				Progress:  i + 1,
-				Total:     count,
-				Score:     model.Score,
-				ImageData: imageData,
-			})
-		}
-		
-	}
-
-	// Encode result to memory as JPEG (much faster than PNG)
-	var buf bytes.Buffer
-	opts := &jpeg.Options{
-		Quality: 90, // High quality but fast encoding
-	}
-	err = jpeg.Encode(&buf, model.Context.Image(), opts)
-	if err != nil {
-		job.Status = "error"
-		job.Error = "Failed to encode result"
-		return
-	}
-
-	job.ResultData = buf.Bytes()
-	job.Status = "completed"
-	
-	// Include final image data in completion message for smooth transition
-	finalImageData := base64.StdEncoding.EncodeToString(buf.Bytes())
-	broadcastProgress(ProgressUpdate{
-		JobID:     jobID,
-		Progress:  count,
-		Total:     count,
-		Score:     job.Score,
-		ImageData: finalImageData,
-		Completed: true,
-	})
+	// Return the processed image directly
+	c.Data(200, "image/jpeg", resultData)
 }

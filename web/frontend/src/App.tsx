@@ -1,18 +1,8 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import './index.css'
-
-interface ProgressUpdate {
-  jobId: string
-  progress: number
-  total: number
-  score: number
-  completed: boolean
-  error?: string
-  imageData?: string // Base64 encoded JPEG
-}
 
 const SHAPE_MODES = [
   { value: 0, label: 'Combo' },
@@ -26,13 +16,12 @@ const SHAPE_MODES = [
   { value: 8, label: 'Polygons' }
 ]
 
-type AppState = 'initial' | 'uploaded' | 'processing' | 'completed'
+type AppState = 'initial' | 'processing' | 'completed'
 
 function App() {
   const [appState, setAppState] = useState<AppState>('initial')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [progress, setProgress] = useState<ProgressUpdate | null>(null)
-  const [resultUrl, setResultUrl] = useState<string | null>(null)
+  const [resultImageUrl, setResultImageUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
@@ -43,70 +32,47 @@ function App() {
   const [alpha, setAlpha] = useState(128)
   
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const wsRef = useRef<WebSocket | null>(null)
 
-  const connectWebSocket = (): Promise<WebSocket> => {
-    return new Promise((resolve, reject) => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const host = window.location.host
-      const ws = new WebSocket(`${protocol}//${host}/ws`)
-      
-      const timeout = setTimeout(() => {
-        reject(new Error('Connection timeout'))
-      }, 5000)
-      
-      ws.onopen = () => {
-        clearTimeout(timeout)
-        resolve(ws)
-      }
-      
-      ws.onerror = () => {
-        clearTimeout(timeout)
-        reject(new Error('WebSocket connection failed'))
-      }
-      
-      ws.onmessage = (event) => {
-        const update: ProgressUpdate = JSON.parse(event.data)
-        setProgress(update)
-        
-        if (update.completed) {
-          if (!update.error) {
-            setResultUrl(`/api/download/${update.jobId}`)
-            setAppState('completed')
-          } else {
-            setError(update.error)
-            setAppState('uploaded')
-          }
-        }
-      }
-      
-      ws.onclose = () => {
-        // Connection closed - will reconnect when needed
-      }
-    })
-  }
+  const processImage = async () => {
+    if (!selectedFile) return
 
-  useEffect(() => {
-    // Initialize WebSocket connection on component mount
-    connectWebSocket().then(ws => {
-      wsRef.current = ws
-    }).catch(() => {
-      // Initial connection failed - will retry when processing starts
-    })
+    setAppState('processing')
+    setError(null)
 
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close()
+    try {
+      // Create form data with file and parameters
+      const formData = new FormData()
+      formData.append('file', selectedFile)
+      formData.append('count', shapeCount.toString())
+      formData.append('mode', shapeMode.toString())
+      formData.append('alpha', alpha.toString())
+
+      // Send request and get processed image directly
+      const response = await fetch('/api/process', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`)
       }
+
+      // Get the image blob and create URL for display
+      const imageBlob = await response.blob()
+      const imageUrl = URL.createObjectURL(imageBlob)
+      
+      setResultImageUrl(imageUrl)
+      setAppState('completed')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Processing failed')
+      setAppState('initial')
     }
-  }, [])
+  }
 
   const handleFileSelect = (file: File) => {
     setSelectedFile(file)
-    setAppState('uploaded')
-    setResultUrl(null)
+    setResultImageUrl(null)
     setError(null)
-    setProgress(null)
   }
 
   const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -149,98 +115,29 @@ function App() {
     }
   }
 
-  const handleProcess = async () => {
-    if (!selectedFile) return
+  const handleDownload = () => {
+    if (!resultImageUrl) return
 
-    // Don't change state yet - keep showing original image until we get initial background
+    // Create download link
+    const link = document.createElement('a')
+    link.href = resultImageUrl
+    link.download = `primitive-${Date.now()}.jpg`
+    
+    // Trigger download
+    document.body.appendChild(link)
+    link.click()
+    
+    // Cleanup
+    document.body.removeChild(link)
+  }
+
+  const handleReset = () => {
+    setAppState('initial')
+    setSelectedFile(null)
+    setResultImageUrl(null)
     setError(null)
-
-    const formData = new FormData()
-    formData.append('file', selectedFile)
-
-    try {
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-      })
-
-      if (!response.ok) throw new Error('Upload failed')
-      
-      const data = await response.json()
-      await startProcessing(data.jobId)
-    } catch (err) {
-      setError('Upload failed: ' + (err as Error).message)
-      setAppState('uploaded')
-    }
-  }
-
-  const startProcessing = async (jobId: string) => {
-    setProgress(null)
-    setResultUrl(null)
-
-    try {
-      // Ensure WebSocket is connected before processing
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-        wsRef.current = await connectWebSocket()
-      }
-
-      const request = {
-        jobId,
-        count: shapeCount,
-        mode: shapeMode,
-        alpha
-      }
-
-      const response = await fetch('/api/process', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
-      })
-
-      if (!response.ok) throw new Error('Processing failed')
-      
-      const data = await response.json()
-      
-      // Set initial progress with background image from response
-      setProgress({
-        jobId: data.jobId,
-        progress: 0,
-        total: shapeCount,
-        score: 0,
-        completed: false,
-        imageData: data.initialImage
-      })
-      
-      // Now switch to processing state since we have the initial image
-      setAppState('processing')
-    } catch (err) {
-      setError('Failed to start processing: ' + (err as Error).message)
-      setAppState('uploaded')
-    }
-  }
-
-  const handleDownload = async () => {
-    if (!resultUrl) return
-
-    try {
-      const response = await fetch(resultUrl)
-      const blob = await response.blob()
-      
-      // Create download link
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `primitive-${Date.now()}.jpg`
-      
-      // Trigger download
-      document.body.appendChild(link)
-      link.click()
-      
-      // Cleanup
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-    } catch (err) {
-      setError('Download failed: ' + (err as Error).message)
+    if (resultImageUrl) {
+      URL.revokeObjectURL(resultImageUrl)
     }
   }
 
@@ -286,30 +183,43 @@ function App() {
           </div>
         )}
 
-        {/* Processing/Completed State: Show progress image */}
-        {(appState === 'processing' || appState === 'completed') && progress && (
+        {/* Processing State: Show loading */}
+        {appState === 'processing' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-            {progress.imageData && (
+            {selectedFile && (
               <img 
-                src={`data:image/jpeg;base64,${progress.imageData}`}
-                alt={appState === 'completed' ? 'Final result' : 'Processing'}
-                className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl transition-opacity duration-300"
+                src={URL.createObjectURL(selectedFile)} 
+                alt="Processing..."
+                className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl opacity-50 transition-opacity duration-300"
               />
             )}
-            <div className="mt-5 w-[300px] h-1 bg-border overflow-hidden">
-              <div 
-                className="h-full bg-white transition-all duration-300"
-                style={{ width: `${(progress.progress / progress.total) * 100}%` }}
-              />
-            </div>
-            <div className="mt-3 text-sm text-muted-foreground">
-              {appState === 'completed' ? 'Complete!' : `${progress.progress} / ${progress.total} shapes • Score: ${progress.score?.toFixed(6)}`}
+            <div className="mt-5 space-y-2">
+              <div className="w-[300px] h-1 bg-border overflow-hidden">
+                <div className="h-full bg-white animate-pulse" />
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Processing your image with {shapeCount} {SHAPE_MODES.find(m => m.value === shapeMode)?.label.toLowerCase()}...
+              </div>
             </div>
           </div>
         )}
 
-        {/* Uploaded State: Show original image */}
-        {appState === 'uploaded' && selectedFile && (
+        {/* Completed State: Show result */}
+        {appState === 'completed' && resultImageUrl && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+            <img 
+              src={resultImageUrl}
+              alt="Final result"
+              className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl transition-opacity duration-300"
+            />
+            <div className="mt-3 text-sm text-muted-foreground">
+              Complete! Created with {shapeCount} {SHAPE_MODES.find(m => m.value === shapeMode)?.label.toLowerCase()}
+            </div>
+          </div>
+        )}
+
+        {/* File Selected State: Show original image */}
+        {selectedFile && appState === 'initial' && (
           <div className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
             isDragOver ? 'bg-primary/10 border-2 border-dashed border-primary' : ''
           }`}>
@@ -413,19 +323,28 @@ function App() {
                   Upload
                 </Button>
                 <Button 
-                  onClick={handleProcess}
+                  onClick={processImage}
                   disabled={appState === 'processing' || !selectedFile}
                   size="sm"
                 >
                   {appState === 'processing' ? 'Processing...' : appState === 'completed' ? 'Process Again' : 'Process Image'}
                 </Button>
-                {appState === 'completed' && resultUrl && (
+                {appState === 'completed' && resultImageUrl && (
                   <Button
                     onClick={handleDownload}
                     variant="default"
                     size="sm"
                   >
                     Download
+                  </Button>
+                )}
+                {appState === 'completed' && (
+                  <Button
+                    onClick={handleReset}
+                    variant="outline"
+                    size="sm"
+                  >
+                    Reset
                   </Button>
                 )}
               </div>
@@ -551,14 +470,14 @@ function App() {
                       Upload
                     </Button>
                     <Button 
-                      onClick={handleProcess}
+                      onClick={processImage}
                       disabled={appState === 'processing' || !selectedFile}
                       size="sm"
                       className="w-full"
                     >
                       {appState === 'processing' ? 'Processing...' : appState === 'completed' ? 'Process Again' : 'Process Image'}
                     </Button>
-                    {appState === 'completed' && resultUrl && (
+                    {appState === 'completed' && resultImageUrl && (
                       <Button
                         onClick={handleDownload}
                         variant="default"
@@ -566,6 +485,16 @@ function App() {
                         className="w-full"
                       >
                         Download
+                      </Button>
+                    )}
+                    {appState === 'completed' && (
+                      <Button
+                        onClick={handleReset}
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                      >
+                        Reset
                       </Button>
                     )}
                   </div>
