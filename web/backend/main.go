@@ -47,11 +47,25 @@ func processImageSync(inputData []byte, count, mode, alpha int) ([]byte, error) 
 	bg := primitive.MakeColor(primitive.AverageImageColor(input))
 	log.Printf("⏱️  Background color: %v", time.Since(t3))
 
-	// Create model with all CPU cores for maximum speed
+	// Create model with performance-based workers
 	t4 := time.Now()
-	workers := runtime.NumCPU()
-	log.Printf("🔧 Using %d CPU cores", workers)
-	model := primitive.NewModel(input, bg, 1024, workers) // Higher resolution output
+	
+	// Detect environment and use REAL core estimation
+	var workers int
+	if os.Getenv("RAILWAY_ENVIRONMENT") != "" {
+		// Railway: Use conservative real core count (ignore fake vCPUs)
+		workers = 2 // Railway trial actually has ~2 real cores worth of power
+		log.Printf("Railway detected: Using %d REAL workers (ignoring %d fake vCPUs)", workers, runtime.NumCPU())
+	} else {
+		// Local: Use actual cores but cap for sanity
+		workers = runtime.NumCPU()
+		if workers > 8 {
+			workers = 8 // Cap at 8 for memory efficiency
+		}
+		log.Printf("Local detected: Using %d workers", workers)
+	}
+	
+	model := primitive.NewModel(input, bg, 1024, workers)
 	log.Printf("⏱️  Model creation: %v", time.Since(t4))
 
 	// Process shapes as fast as possible
