@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -16,11 +16,12 @@ const SHAPE_MODES = [
   { value: 8, label: 'Polygons' }
 ]
 
-type AppState = 'initial' | 'processing' | 'completed'
+type AppState = 'initial' | 'uploaded' | 'processing' | 'completed'
 
 function App() {
   const [appState, setAppState] = useState<AppState>('initial')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [selectedFileUrl, setSelectedFileUrl] = useState<string | null>(null)
   const [resultImageUrl, setResultImageUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -32,6 +33,18 @@ function App() {
   const [alpha, setAlpha] = useState(128)
   
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      if (selectedFileUrl) {
+        URL.revokeObjectURL(selectedFileUrl)
+      }
+      if (resultImageUrl) {
+        URL.revokeObjectURL(resultImageUrl)
+      }
+    }
+  }, [selectedFileUrl, resultImageUrl])
 
   const processImage = async () => {
     if (!selectedFile) return
@@ -65,14 +78,24 @@ function App() {
       setAppState('completed')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Processing failed')
-      setAppState('initial')
+      setAppState('uploaded')
     }
   }
 
   const handleFileSelect = (file: File) => {
+    // Clean up previous file URL if it exists
+    if (selectedFileUrl) {
+      URL.revokeObjectURL(selectedFileUrl)
+    }
+    
+    // Create new blob URL once
+    const fileUrl = URL.createObjectURL(file)
+    
     setSelectedFile(file)
+    setSelectedFileUrl(fileUrl)
     setResultImageUrl(null)
     setError(null)
+    setAppState('uploaded')
   }
 
   const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -131,15 +154,7 @@ function App() {
     document.body.removeChild(link)
   }
 
-  const handleReset = () => {
-    setAppState('initial')
-    setSelectedFile(null)
-    setResultImageUrl(null)
-    setError(null)
-    if (resultImageUrl) {
-      URL.revokeObjectURL(resultImageUrl)
-    }
-  }
+
 
   return (
     <div className="h-screen flex flex-col bg-background">
@@ -186,9 +201,9 @@ function App() {
         {/* Processing State: Show loading */}
         {appState === 'processing' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-            {selectedFile && (
+            {selectedFileUrl && (
               <img 
-                src={URL.createObjectURL(selectedFile)} 
+                src={selectedFileUrl} 
                 alt="Processing..."
                 className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl opacity-50 transition-opacity duration-300"
               />
@@ -219,7 +234,7 @@ function App() {
         )}
 
         {/* File Selected State: Show original image */}
-        {selectedFile && appState === 'initial' && (
+        {selectedFile && (appState === 'initial' || appState === 'uploaded') && (
           <div className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
             isDragOver ? 'bg-primary/10 border-2 border-dashed border-primary' : ''
           }`}>
@@ -227,13 +242,13 @@ function App() {
               <div className="text-lg text-muted-foreground select-none">
                 Drop to replace image
               </div>
-            ) : (
+            ) : selectedFileUrl ? (
               <img 
-                src={URL.createObjectURL(selectedFile)} 
+                src={selectedFileUrl} 
                 alt="Original"
                 className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl"
               />
-            )}
+            ) : null}
           </div>
         )}
 
@@ -336,15 +351,6 @@ function App() {
                     size="sm"
                   >
                     Download
-                  </Button>
-                )}
-                {appState === 'completed' && (
-                  <Button
-                    onClick={handleReset}
-                    variant="outline"
-                    size="sm"
-                  >
-                    Reset
                   </Button>
                 )}
               </div>
@@ -485,16 +491,6 @@ function App() {
                         className="w-full"
                       >
                         Download
-                      </Button>
-                    )}
-                    {appState === 'completed' && (
-                      <Button
-                        onClick={handleReset}
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
-                      >
-                        Reset
                       </Button>
                     )}
                   </div>
