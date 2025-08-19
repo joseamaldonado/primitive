@@ -47,7 +47,9 @@ function App() {
 
   const connectWebSocket = (): Promise<WebSocket> => {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket('ws://localhost:8081/ws')
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const host = window.location.host
+      const ws = new WebSocket(`${protocol}//${host}/ws`)
       
       const timeout = setTimeout(() => {
         reject(new Error('Connection timeout'))
@@ -69,7 +71,7 @@ function App() {
         
         if (update.completed) {
           if (!update.error) {
-            setResultUrl(`http://localhost:8081/api/download/${update.jobId}`)
+            setResultUrl(`/api/download/${update.jobId}`)
             setAppState('completed')
           } else {
             setError(update.error)
@@ -153,7 +155,7 @@ function App() {
     formData.append('file', selectedFile)
 
     try {
-      const response = await fetch('http://localhost:8081/api/upload', {
+      const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData
       })
@@ -185,7 +187,7 @@ function App() {
         alpha
       }
 
-      const response = await fetch('http://localhost:8081/api/process', {
+      const response = await fetch('/api/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request)

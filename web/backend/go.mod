@@ -3,7 +3,7 @@ module primitive-web
 go 1.25.0
 
 require (
-	github.com/fogleman/primitive v0.0.0-00010101000000-000000000000
+	github.com/fogleman/primitive v0.0.0-20200504002142-0373c216458b
 	github.com/gin-gonic/gin v1.10.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
@@ -40,5 +40,3 @@ require (
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/fogleman/primitive => ../../

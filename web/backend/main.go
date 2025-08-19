@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -89,9 +90,14 @@ func generateInitialImage(inputData []byte) (string, error) {
 }
 
 func main() {
+	// Set Gin mode for production
+	if os.Getenv("RAILWAY_ENVIRONMENT") != "" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
 	r := gin.Default()
 
-	// CORS middleware
+	// CORS middleware - not needed for full-stack but keep for development
 	r.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -105,9 +111,17 @@ func main() {
 		c.Next()
 	})
 
-	// Serve static files from frontend dist
-	r.Static("/assets", "../frontend/dist/assets")
-	r.StaticFile("/", "../frontend/dist/index.html")
+	// Health check endpoint
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
+	// Serve static files from frontend build
+	r.Static("/assets", "./static/assets")
+	r.StaticFile("/", "./static/index.html")
+	
+	// Serve other static files
+	r.Static("/static", "./static")
 
 	// API routes
 	api := r.Group("/api")
@@ -121,8 +135,14 @@ func main() {
 	// WebSocket for progress updates
 	r.GET("/ws", handleWebSocket)
 
-	log.Println("Server starting on :8081")
-	r.Run(":8081")
+	// Get port from environment or default to 8081
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8081"
+	}
+
+	log.Printf("Server starting on port %s", port)
+	r.Run(":" + port)
 }
 
 func handleUpload(c *gin.Context) {
