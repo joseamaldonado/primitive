@@ -117,12 +117,14 @@ function App() {
   }
 
   const handleUploadAreaClick = () => {
+    if (appState === 'processing') return
     fileInputRef.current?.click()
   }
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    if (appState === 'processing') return
     setIsDragOver(true)
   }
 
@@ -136,6 +138,8 @@ function App() {
     e.preventDefault()
     e.stopPropagation()
     setIsDragOver(false)
+
+    if (appState === 'processing') return
 
     const files = Array.from(e.dataTransfer.files)
     const imageFile = files.find(file => file.type.startsWith('image/'))
@@ -403,6 +407,7 @@ function App() {
                 <Button 
                   variant="outline" 
                   onClick={handleUploadAreaClick}
+                  disabled={appState === 'processing'}
                   size="sm"
                 >
                   Upload
@@ -539,6 +544,7 @@ function App() {
                     <Button 
                       variant="outline" 
                       onClick={handleUploadAreaClick}
+                      disabled={appState === 'processing'}
                       size="sm"
                       className="w-full"
                     >
