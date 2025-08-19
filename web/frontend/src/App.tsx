@@ -200,20 +200,24 @@ function App() {
 
         {/* Processing State: Show loading */}
         {appState === 'processing' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-            {selectedFileUrl && (
-              <img 
-                src={selectedFileUrl} 
-                alt="Processing..."
-                className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl opacity-50 transition-opacity duration-300"
-              />
-            )}
-            <div className="mt-5 space-y-2">
-              <div className="w-[300px] h-1 bg-border overflow-hidden">
-                <div className="h-full bg-white animate-pulse" />
-              </div>
-              <div className="text-sm text-muted-foreground">
-                Processing your image with {shapeCount} {SHAPE_MODES.find(m => m.value === shapeMode)?.label.toLowerCase()}...
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="relative">
+              {selectedFileUrl && (
+                <img 
+                  src={selectedFileUrl} 
+                  alt="Processing..."
+                  className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl opacity-50 transition-opacity duration-300"
+                />
+              )}
+              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black/80 backdrop-blur-sm text-white px-4 py-3 shadow-lg">
+                <div className="flex flex-col items-center space-y-2 text-center">
+                  <div className="w-[200px] h-1 bg-white/20 overflow-hidden">
+                    <div className="h-full bg-white animate-pulse" />
+                  </div>
+                  <div className="text-sm font-medium">
+                    Processing {shapeCount} {SHAPE_MODES.find(m => m.value === shapeMode)?.label.toLowerCase()}...
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -221,14 +225,18 @@ function App() {
 
         {/* Completed State: Show result */}
         {appState === 'completed' && resultImageUrl && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-            <img 
-              src={resultImageUrl}
-              alt="Final result"
-              className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl transition-opacity duration-300"
-            />
-            <div className="mt-3 text-sm text-muted-foreground">
-              Complete! Created with {shapeCount} {SHAPE_MODES.find(m => m.value === shapeMode)?.label.toLowerCase()}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="relative">
+              <img 
+                src={resultImageUrl}
+                alt="Final result"
+                className="max-w-[90vw] max-h-[calc(100vh-180px)] shadow-2xl transition-opacity duration-300"
+              />
+              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black/80 backdrop-blur-sm text-white px-4 py-2 shadow-lg">
+                <div className="text-sm font-medium text-center">
+                  Complete! Created with {shapeCount} {SHAPE_MODES.find(m => m.value === shapeMode)?.label.toLowerCase()}
+                </div>
+              </div>
             </div>
           </div>
         )}
