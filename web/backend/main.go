@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -313,8 +314,9 @@ func processImage(jobID string, count, mode, alpha int) {
 	// Setup background color
 	bg := primitive.MakeColor(primitive.AverageImageColor(input))
 
-	// Create model
-	model := primitive.NewModel(input, bg, 512, 1)
+	// Create model with multiple workers for faster processing
+	workers := runtime.NumCPU()
+	model := primitive.NewModel(input, bg, 512, workers)
 	job.Score = model.Score
 
 	// Process shapes
