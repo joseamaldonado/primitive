@@ -44,7 +44,7 @@ function App() {
         URL.revokeObjectURL(resultImageUrl)
       }
     }
-  }, [selectedFileUrl, resultImageUrl])
+  }, [])
 
   const processImage = async () => {
     if (!selectedFile) return
