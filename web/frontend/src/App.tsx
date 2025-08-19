@@ -210,13 +210,8 @@ function App() {
                 />
               )}
               <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black/80 backdrop-blur-sm text-white px-4 py-3 shadow-lg">
-                <div className="flex flex-col items-center space-y-2 text-center">
-                  <div className="w-[200px] h-1 bg-white/20 overflow-hidden">
-                    <div className="h-full bg-white animate-pulse" />
-                  </div>
-                  <div className="text-sm font-medium">
-                    Processing {shapeCount} {SHAPE_MODES.find(m => m.value === shapeMode)?.label.toLowerCase()}...
-                  </div>
+                <div className="text-sm font-medium text-center">
+                  Processing {shapeCount} {SHAPE_MODES.find(m => m.value === shapeMode)?.label.toLowerCase()}...
                 </div>
               </div>
             </div>
