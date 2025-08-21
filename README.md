@@ -14,6 +14,12 @@ Now available as a native Mac application!
 
 https://primitive.lol/
 
+### Web Interface
+
+A modern web frontend is also available! Upload images, adjust parameters, and download results instantly.
+
+https://primitive.josemaldona.do
+
 ### Twitter
 
 Follow [@PrimitivePic](https://twitter.com/PrimitivePic) on Twitter to see a new primitive picture every 30 minutes!
